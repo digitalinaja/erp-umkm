@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Select,
   SelectContent,
@@ -13,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { Plus, ShoppingCart, Trash2, Info, Package, TrendingDown } from 'lucide-react'
 import { formatRupiah, formatShortDate } from '@/lib/format'
 import { SalesForm } from './sales-form'
 import { useToast } from '@/hooks/use-toast'
@@ -44,6 +45,9 @@ const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'secondar
   cancelled: { label: 'Dibatalkan', variant: 'destructive', className: '' },
 }
 
+// Status yang sudah mempengaruhi stok
+const STOCK_AFFECTING = ['confirmed', 'shipped', 'completed']
+
 export function SalesPage() {
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,11 +73,11 @@ export function SalesPage() {
   }, [])
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus pesanan ini?')) return
+    if (!confirm('Apakah Anda yakin ingin menghapus pesanan ini? Stok akan dikembalikan jika sudah terpengaruh.')) return
     try {
       const res = await fetch(`/api/sales/${id}`, { method: 'DELETE' })
       if (res.ok) {
-        toast({ title: 'Pesanan berhasil dihapus' })
+        toast({ title: 'Pesanan berhasil dihapus', description: 'Stok telah dikembalikan jika sebelumnya sudah dikurangi' })
         loadData()
       }
     } catch {
@@ -82,13 +86,28 @@ export function SalesPage() {
   }
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
+    const order = orders.find((o) => o.id === orderId)
+    if (!order) return
+
+    const oldAffectsStock = STOCK_AFFECTING.includes(order.status)
+    const newAffectsStock = STOCK_AFFECTING.includes(newStatus)
+
+    // Konfirmasi jika akan mengubah stok
+    if (!oldAffectsStock && newAffectsStock) {
+      const itemsText = order.items.map(i => `${i.product.name} (-${i.quantity})`).join(', ')
+      if (!confirm(`Mengubah status akan mengurangi stok:\n${itemsText}\n\nLanjutkan?`)) return
+    }
+    if (oldAffectsStock && !newAffectsStock) {
+      const itemsText = order.items.map(i => `${i.product.name} (+${i.quantity})`).join(', ')
+      if (!confirm(`Membatalkan akan mengembalikan stok:\n${itemsText}\n\nLanjutkan?`)) return
+    }
+
     try {
-      const order = orders.find((o) => o.id === orderId)
-      if (!order) return
       const res = await fetch(`/api/sales/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orderNumber: order.orderNumber,
           customerId: order.customer.id,
           status: newStatus,
           notes: order.notes,
@@ -101,7 +120,16 @@ export function SalesPage() {
         }),
       })
       if (res.ok) {
-        toast({ title: 'Status pesanan diperbarui' })
+        let description = ''
+        if (!oldAffectsStock && newAffectsStock) {
+          description = 'Stok produk telah otomatis berkurang'
+        } else if (oldAffectsStock && !newAffectsStock) {
+          description = 'Stok produk telah otomatis dikembalikan'
+        }
+        if (newStatus === 'completed') {
+          description = 'Stok dikurangi & transaksi pemasukan otomatis dicatat di Keuangan'
+        }
+        toast({ title: 'Status pesanan diperbarui', description })
         loadData()
       }
     } catch {
@@ -139,6 +167,20 @@ export function SalesPage() {
         </Button>
       </div>
 
+      {/* Info alur stok */}
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertDescription className="text-sm">
+          <span className="font-semibold">Alur Stok Otomatis:</span> Saat pesanan diubah ke status{' '}
+          <Badge variant="default" className="bg-blue-500 hover:bg-blue-500 text-xs">Dikonfirmasi</Badge>{' '}
+          <Badge variant="default" className="bg-amber-500 hover:bg-amber-500 text-xs">Dikirim</Badge>{' '}
+          <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-xs">Selesai</Badge>, 
+          stok produk otomatis <span className="font-semibold text-red-600">berkurang</span>. 
+          Jika dibatalkan, stok <span className="font-semibold text-emerald-600">dikembalikan</span>. 
+          Pesanan <span className="font-semibold">Selesai</span> juga otomatis mencatat pemasukan di modul Keuangan.
+        </AlertDescription>
+      </Alert>
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -171,13 +213,14 @@ export function SalesPage() {
                   <TableHead>Tanggal</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Stok</TableHead>
                   <TableHead className="text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
                         <ShoppingCart className="h-8 w-8" />
                         <p>Belum ada pesanan penjualan</p>
@@ -187,6 +230,7 @@ export function SalesPage() {
                 ) : (
                   filtered.map((order) => {
                     const statusInfo = STATUS_MAP[order.status] || STATUS_MAP.draft
+                    const stockAffected = STOCK_AFFECTING.includes(order.status)
                     return (
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">{order.orderNumber}</TableCell>
@@ -198,7 +242,7 @@ export function SalesPage() {
                             value={order.status}
                             onValueChange={(v) => handleStatusChange(order.id, v)}
                           >
-                            <SelectTrigger className="w-32 h-7">
+                            <SelectTrigger className="w-36 h-7">
                               <Badge variant={statusInfo.variant} className={statusInfo.className}>
                                 {statusInfo.label}
                               </Badge>
@@ -211,6 +255,18 @@ export function SalesPage() {
                               <SelectItem value="cancelled">Dibatalkan</SelectItem>
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell>
+                          {stockAffected ? (
+                            <Badge variant="outline" className="border-amber-500 text-amber-600 text-xs gap-1">
+                              <TrendingDown className="h-3 w-3" />
+                              Sudah dikurangi
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              Belum
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button

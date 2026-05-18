@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2 } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Plus, Trash2, Package } from 'lucide-react'
 import { formatRupiah } from '@/lib/format'
 import { useToast } from '@/hooks/use-toast'
 
@@ -33,6 +34,7 @@ interface Product {
   id: string
   name: string
   cost: number
+  stock: number
 }
 
 interface LineItem {
@@ -145,7 +147,7 @@ export function PurchaseForm({ open, onOpenChange, onSuccess }: PurchaseFormProp
       })
 
       if (res.ok) {
-        toast({ title: 'Pesanan pembelian berhasil dibuat' })
+        toast({ title: 'Pesanan pembelian berhasil dibuat (Draft)' })
         onOpenChange(false)
         onSuccess()
       } else {
@@ -163,7 +165,9 @@ export function PurchaseForm({ open, onOpenChange, onSuccess }: PurchaseFormProp
       <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Buat Pesanan Pembelian</DialogTitle>
-          <DialogDescription>Buat pesanan pembelian baru dari supplier</DialogDescription>
+          <DialogDescription>
+            Buat pesanan pembelian baru dari supplier. Pesanan dibuat sebagai Draft, stok akan bertambah saat dikonfirmasi.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
@@ -190,63 +194,78 @@ export function PurchaseForm({ open, onOpenChange, onSuccess }: PurchaseFormProp
                   <Plus className="mr-1 h-3 w-3" /> Tambah Item
                 </Button>
               </div>
-              {items.map((item, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Produk</Label>}
-                    <Select
-                      value={item.productId}
-                      onValueChange={(v) => updateItem(index, 'productId', v)}
-                    >
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Pilih produk" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              {items.map((item, index) => {
+                const product = products.find((p) => p.id === item.productId)
+                return (
+                  <div key={index} className="space-y-1">
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-5">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Produk</Label>}
+                        <Select
+                          value={item.productId}
+                          onValueChange={(v) => updateItem(index, 'productId', v)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Pilih produk" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                <span className="flex items-center gap-1">
+                                  {p.name}
+                                  <span className="text-xs text-muted-foreground">(Stok: {p.stock})</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Qty</Label>}
+                        <Input
+                          type="number"
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Harga</Label>}
+                        <Input
+                          type="number"
+                          value={item.price}
+                          onChange={(e) => updateItem(index, 'price', parseFloat(e.target.value) || 0)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Total</Label>}
+                        <div className="h-9 flex items-center text-sm font-medium">{formatRupiah(item.total)}</div>
+                      </div>
+                      <div className="col-span-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeItem(index)}
+                          disabled={items.length === 1}
+                          className="h-9 w-9"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Info perubahan stok */}
+                    {product && item.quantity > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-emerald-600 pl-1">
+                        <Package className="h-3 w-3" />
+                        Stok setelah dikonfirmasi: {product.stock} → {product.stock + item.quantity}
+                      </div>
+                    )}
                   </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Qty</Label>}
-                    <Input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Harga</Label>}
-                    <Input
-                      type="number"
-                      value={item.price}
-                      onChange={(e) => updateItem(index, 'price', parseFloat(e.target.value) || 0)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Total</Label>}
-                    <div className="h-9 flex items-center text-sm font-medium">{formatRupiah(item.total)}</div>
-                  </div>
-                  <div className="col-span-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeItem(index)}
-                      disabled={items.length === 1}
-                      className="h-9 w-9"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               <div className="flex justify-end pt-2 border-t">
                 <div className="text-right">
                   <span className="text-sm text-muted-foreground">Total: </span>
@@ -254,6 +273,17 @@ export function PurchaseForm({ open, onOpenChange, onSuccess }: PurchaseFormProp
                 </div>
               </div>
             </div>
+
+            {/* Info alur stok */}
+            <Alert>
+              <Package className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                <span className="font-semibold">Alur Stok:</span> Pesanan dibuat sebagai Draft (stok belum berubah). 
+                Saat status diubah ke <span className="font-semibold text-blue-600">Dikonfirmasi</span> atau 
+                <span className="font-semibold text-emerald-600"> Selesai</span>, 
+                stok akan otomatis bertambah. Jika dibatalkan, stok dikembalikan.
+              </AlertDescription>
+            </Alert>
 
             <div className="grid gap-2">
               <Label>Catatan</Label>
@@ -270,7 +300,7 @@ export function PurchaseForm({ open, onOpenChange, onSuccess }: PurchaseFormProp
               Batal
             </Button>
             <Button type="submit" disabled={loading} className="bg-emerald-600 hover:bg-emerald-700">
-              {loading ? 'Menyimpan...' : 'Buat Pesanan'}
+              {loading ? 'Menyimpan...' : 'Buat Pesanan (Draft)'}
             </Button>
           </DialogFooter>
         </form>

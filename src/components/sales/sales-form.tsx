@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2 } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Plus, Trash2, AlertTriangle, Package } from 'lucide-react'
 import { formatRupiah } from '@/lib/format'
 import { useToast } from '@/hooks/use-toast'
 
@@ -141,6 +142,21 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
 
   const totalAmount = items.reduce((sum, item) => sum + item.total, 0)
 
+  // Cek apakah ada item yang melebihi stok
+  const stockWarnings = items
+    .filter((item) => item.productId)
+    .map((item) => {
+      const product = products.find((p) => p.id === item.productId)
+      if (!product) return null
+      if (item.quantity > product.stock) {
+        return `${product.name}: stok tersedia ${product.stock}, diminta ${item.quantity}`
+      }
+      return null
+    })
+    .filter(Boolean)
+
+  const hasStockWarning = stockWarnings.length > 0
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!customerId) {
@@ -178,7 +194,7 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
       })
 
       if (res.ok) {
-        toast({ title: order ? 'Pesanan berhasil diperbarui' : 'Pesanan berhasil dibuat' })
+        toast({ title: order ? 'Pesanan berhasil diperbarui' : 'Pesanan berhasil dibuat (Draft)' })
         onOpenChange(false)
         onSuccess()
       } else {
@@ -197,7 +213,7 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
         <DialogHeader>
           <DialogTitle>{order ? 'Edit Pesanan Penjualan' : 'Buat Pesanan Penjualan'}</DialogTitle>
           <DialogDescription>
-            {order ? 'Perbarui pesanan penjualan' : 'Buat pesanan penjualan baru'}
+            {order ? 'Perbarui pesanan penjualan' : 'Buat pesanan penjualan baru. Pesanan dibuat sebagai Draft, stok akan berkurang saat dikonfirmasi.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -225,63 +241,89 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
                   <Plus className="mr-1 h-3 w-3" /> Tambah Item
                 </Button>
               </div>
-              {items.map((item, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Produk</Label>}
-                    <Select
-                      value={item.productId}
-                      onValueChange={(v) => updateItem(index, 'productId', v)}
-                    >
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Pilih produk" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name} (Stok: {p.stock})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              {items.map((item, index) => {
+                const product = products.find((p) => p.id === item.productId)
+                const isOverStock = product && item.quantity > product.stock
+
+                return (
+                  <div key={index} className="space-y-1">
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-5">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Produk</Label>}
+                        <Select
+                          value={item.productId}
+                          onValueChange={(v) => updateItem(index, 'productId', v)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Pilih produk" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                <span className="flex items-center gap-1">
+                                  {p.name}
+                                  <span className={`text-xs ${p.stock <= 0 ? 'text-red-500 font-semibold' : 'text-muted-foreground'}`}>
+                                    (Stok: {p.stock})
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Qty</Label>}
+                        <Input
+                          type="number"
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                          className={`h-9 ${isOverStock ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Harga</Label>}
+                        <Input
+                          type="number"
+                          value={item.price}
+                          onChange={(e) => updateItem(index, 'price', parseFloat(e.target.value) || 0)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        {index === 0 && <Label className="text-xs text-muted-foreground">Total</Label>}
+                        <div className="h-9 flex items-center text-sm font-medium">{formatRupiah(item.total)}</div>
+                      </div>
+                      <div className="col-span-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeItem(index)}
+                          disabled={items.length === 1}
+                          className="h-9 w-9"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Peringatan stok per item */}
+                    {isOverStock && (
+                      <div className="flex items-center gap-1 text-xs text-red-600 pl-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Stok tidak cukup! Tersedia: {product.stock}, Diminta: {item.quantity}
+                      </div>
+                    )}
+                    {/* Info perubahan stok */}
+                    {product && !isOverStock && item.quantity > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground pl-1">
+                        <Package className="h-3 w-3" />
+                        Stok setelah dikonfirmasi: {product.stock} → {product.stock - item.quantity}
+                      </div>
+                    )}
                   </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Qty</Label>}
-                    <Input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Harga</Label>}
-                    <Input
-                      type="number"
-                      value={item.price}
-                      onChange={(e) => updateItem(index, 'price', parseFloat(e.target.value) || 0)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    {index === 0 && <Label className="text-xs text-muted-foreground">Total</Label>}
-                    <div className="h-9 flex items-center text-sm font-medium">{formatRupiah(item.total)}</div>
-                  </div>
-                  <div className="col-span-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeItem(index)}
-                      disabled={items.length === 1}
-                      className="h-9 w-9"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               <div className="flex justify-end pt-2 border-t">
                 <div className="text-right">
                   <span className="text-sm text-muted-foreground">Total: </span>
@@ -289,6 +331,34 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
                 </div>
               </div>
             </div>
+
+            {/* Peringatan stok keseluruhan */}
+            {hasStockWarning && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <span className="font-semibold">Peringatan Stok!</span>
+                  <ul className="mt-1 list-disc list-inside text-sm">
+                    {stockWarnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-sm">Stok bisa negatif jika tetap dikonfirmasi.</p>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Info alur stok */}
+            <Alert>
+              <Package className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                <span className="font-semibold">Alur Stok:</span> Pesanan dibuat sebagai Draft (stok belum berubah). 
+                Saat status diubah ke <span className="font-semibold text-blue-600">Dikonfirmasi</span>, 
+                <span className="font-semibold text-amber-600"> Dikirim</span>, atau 
+                <span className="font-semibold text-emerald-600"> Selesai</span>, 
+                stok akan otomatis berkurang. Jika dibatalkan, stok dikembalikan.
+              </AlertDescription>
+            </Alert>
 
             <div className="grid gap-2">
               <Label>Catatan</Label>
@@ -305,7 +375,7 @@ export function SalesForm({ open, onOpenChange, order, onSuccess }: SalesFormPro
               Batal
             </Button>
             <Button type="submit" disabled={loading} className="bg-emerald-600 hover:bg-emerald-700">
-              {loading ? 'Menyimpan...' : order ? 'Perbarui' : 'Buat Pesanan'}
+              {loading ? 'Menyimpan...' : order ? 'Perbarui' : 'Buat Pesanan (Draft)'}
             </Button>
           </DialogFooter>
         </form>
